@@ -22,11 +22,12 @@ using Lean.Pool;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using Animancer;
+using Cysharp.Threading.Tasks;
 using Jyx2.Middleware;
+using UnityEngine.AddressableAssets;
 
 public class MapRole : Jyx2AnimationBattleRole
 {
-
     //数据实例
     public RoleInstance DataInstance
     {
@@ -51,13 +52,7 @@ public class MapRole : Jyx2AnimationBattleRole
 
     //在非战斗模式下拿武器
     public bool m_HasWeaponNotInBattle = false;
-
-    //行为
-    public MapRoleBehavior m_Behavior = MapRoleBehavior.Npc;
-
-    //行为参数
-    public List<float> m_BehaviorParas = new List<float>();
-
+    
     //是否关键角色（战斗中晕眩，战斗后恢复）
     public bool m_IsKeyRole = false; //主角+队友+面板打勾的
 
@@ -73,43 +68,52 @@ public class MapRole : Jyx2AnimationBattleRole
     public bool HPBarIsDirty { private set; get; } = false;//通知需要刷新Hud血条
 
     // private CustomOutlooking _outLooking;
-    
+
     public override Animator GetAnimator()
     {
         if (_animator == null && transform.childCount == 0)
             return null;
 
-        if(_animator == null)
+        if (_animator == null)
         {
-			for(var index=0;index<transform.childCount;index++){
-				_animator = transform.GetChild(index).GetComponentInChildren<Animator>();
-				if(_animator!=null){
-					break;
-				}
-			}
+            for (var index = 0; index < transform.childCount; index++)
+            {
+                _animator = transform.GetChild(index).GetComponentInChildren<Animator>();
+                if (_animator != null)
+                {
+                    break;
+                }
+            }
         }
+
+        if (_lazyInitBattleAnimator)
+        {
+            if (_navMeshAgent != null) _navMeshAgent.enabled = false;
+
+            if (_animator != null)
+            {
+                _animator.SetBool("IsInBattle", true);
+                _animator.applyRootMotion = false; //不接受动作变化位置
+                _animator.SetFloat("speed", 0);
+            }
+
+            _lazyInitBattleAnimator = false;
+        }
+        
         return _animator;
     }
+
     private Animator _animator;
     public void ForceSetAnimator(Animator a)
     {
         _animator = a;
     }
 
-    //状态
-    private MapRoleStatus m_Status = MapRoleStatus.Normal;
-
     //健康状态
     private MapRoleHealth m_Health = MapRoleHealth.Normal;
 
     private float _distFromPlayer;
     private CompositeDisposable _behaviourDisposable = new CompositeDisposable();
-
-    public void SetBehavior(MapRoleBehavior behavior)
-    {
-        m_Behavior = behavior;
-    }
-
 
     //说话
     public void Say(string word, float time = 5f)
@@ -191,8 +195,6 @@ public class MapRole : Jyx2AnimationBattleRole
 
         info.TextPrefab = Jyx2ResourceHelper.GetCachedPrefab("Assets/Prefabs/Jyx2/AttackInfoText.prefab");
         hudRoot.NewText(info);
-
-        CheckDeath();
     }
 
     //血条标记为需要刷新
@@ -207,14 +209,6 @@ public class MapRole : Jyx2AnimationBattleRole
         HPBarIsDirty = false;
     }
 
-    void CheckDeath()
-    {
-        if (DataInstance.IsDead())
-        {
-            this.gameObject.SetActive(false); //TODO，播放一个死亡特效
-        }
-    }
-    
     public void ShowBattleText(string mainText,Color textColor) 
     {
         if (StoryEngine.Instance == null) return;
@@ -293,32 +287,11 @@ public class MapRole : Jyx2AnimationBattleRole
         }
     }
 
-    public void SwitchStatus(MapRoleStatus status)
+    private bool _lazyInitBattleAnimator = true;
+    
+    public void LazyInitAnimator()
     {
-        m_Status = status;
-        switch (status)
-        {
-            case MapRoleStatus.Normal:
-                {
-                    if (m_IsKeyRole)
-                    {
-                        if (_navMeshAgent != null) _navMeshAgent.enabled = true;
-                        GetAnimator().SetTrigger("LeaveBattle");
-                    }
-                    GetAnimator().SetBool("IsInBattle", false);
-                    //接受动作变化位置
-                    GetAnimator().applyRootMotion = true;
-                    break;
-                }
-            case MapRoleStatus.Battle:
-                {
-                    if (_navMeshAgent != null) _navMeshAgent.enabled = false;
-                    GetAnimator().SetBool("IsInBattle", true);
-                    //不接受动作变化位置
-                    GetAnimator().applyRootMotion = false;
-                    break;
-                }
-        }
+        _lazyInitBattleAnimator = true;
     }
 
     //切换武学
@@ -327,7 +300,7 @@ public class MapRole : Jyx2AnimationBattleRole
         var display = skill.GetDisplay();
         //切换对应武器
         var weaponCode = display.weaponCode;
-        if (weaponCode > 0)
+        if (weaponCode >= 0)
         {
             ChangeWeapon(weaponCode);
         }
@@ -384,8 +357,22 @@ public class MapRole : Jyx2AnimationBattleRole
 
     public void ShowDeath(int deathCode = -1)
     {
+        var globalConfig = GlobalAssetConfig.Instance;
+        
+        //人型骨骼，播放死亡动作
+        if (this._animator.runtimeAnimatorController == globalConfig.defaultAnimatorController)
+        {
+            var clip = Hanjiasongshu.Tools.GetRandomElement(globalConfig.defaultDieClips);
+            PlayAnimation(clip, () => { Destroy(gameObject); });
+        }
+        else
+        {
+            Destroy(gameObject);  
+        }
+        
+        
         //简单粗暴，直接删除GameObject，回头有空再实现死亡动作
-        GameObject.Destroy(this.gameObject);
+        //GameObject.Destroy(this.gameObject);
 
         //默认播放随机死亡动作
         //if (deathCode == -1) deathCode = ToolsShared.GetRandomInt(0, 2);
@@ -424,7 +411,7 @@ public class MapRole : Jyx2AnimationBattleRole
         _navMeshAgent = GetComponent<NavMeshAgent>();
     }
 
-    async private void Start()
+    private async void Start()
     {
         await BeforeSceneLoad.loadFinishTask;
         
@@ -445,7 +432,7 @@ public class MapRole : Jyx2AnimationBattleRole
         if (!m_IsWaitingForActive && m_RoleKey != "testman" && m_RoleKey != "主角")
         {
             m_IsWaitingForActive = false;
-            RefreshModel();
+            await RefreshModel();
         }
     }
 
@@ -494,31 +481,29 @@ public class MapRole : Jyx2AnimationBattleRole
     public float m_FootStepTimespan = 0.4f;
     #endregion
     
-    public void RefreshModel(Action callback = null)
+    public async UniTask RefreshModel()
     {
         if (DataInstance == null) return;
 
         if (string.IsNullOrEmpty(DataInstance.ModelAsset)) return;
         
-        RefreshModelByModelAvata(DataInstance.ModelAsset, ()=> {
-            var animator = GetAnimator();
-            if (animator != null)
-            {
-                animator.SetBool("InBattle", IsInBattle);
-            }
-            
-            if (IsInBattle)
-            {
-                //直接用第一个武功的姿势
-                DataInstance.SwitchAnimationToSkill(DataInstance.Wugongs[0]);
-            }
-            else
-            {
-                animator.SetTrigger("move");
-            }
-            
-            if(callback != null) callback();
-        });
+        await RefreshModelByModelAvata(DataInstance.ModelAsset);
+        
+        var animator = GetAnimator();
+        if (animator != null)
+        {
+            animator.SetBool("InBattle", IsInBattle);
+        }
+        
+        if (IsInBattle)
+        {
+            //直接用第一个武功的姿势
+            DataInstance.SwitchAnimationToSkill(DataInstance.Wugongs[0]);
+        }
+        else
+        {
+            animator.SetTrigger("move");
+        }
     }
     
     GameObject m_CurrentWeapon = null;
@@ -529,7 +514,7 @@ public class MapRole : Jyx2AnimationBattleRole
     /// <param name="weaponStr"></param>
     void DOMountWeapon(ModelAsset.WeaponPartType weaponCode)
     {
-        if(!IsInBattle) return;
+        //if(!IsInBattle) return;
         UnMountCurrentWeapon();
 
         if (weaponCode == 0)
@@ -567,7 +552,7 @@ public class MapRole : Jyx2AnimationBattleRole
     private string modelId;
     private ModelAsset modelAsset;
     
-    public void RefreshModelByModelAvata(string modelAvataCode, Action callback)
+    async UniTask RefreshModelByModelAvata(string modelAvataCode)
     {
         if (_isRefreshingModel)
         {
@@ -598,15 +583,11 @@ public class MapRole : Jyx2AnimationBattleRole
         }
 
         this.modelId = modelId;
-        OnChange(() =>
-        {
-            _isRefreshingModel = false;
-
-            if (callback != null) callback();
-        });
+        await OnChange();
+        _isRefreshingModel = false;
     }
     
-    private void OnChange(Action callback = null)
+    async UniTask OnChange()
     {
         if (Application.isPlaying)
         {
@@ -633,22 +614,19 @@ public class MapRole : Jyx2AnimationBattleRole
         }
 
         string path = $"Assets/BuildSource/Jyx2RoleModelAssets/{modelId}.asset";
-        Jyx2ResourceHelper.LoadAsset<ModelAsset>(path, modelAsset =>
-        {
-            if (modelAsset == null) return;
-        
-            var modelView = Instantiate(modelAsset.m_View);
-            modelView.transform.SetParent(gameObject.transform, false);
-            modelView.transform.localPosition = Vector3.zero;
-            DataInstance.Model = modelAsset;
-        
-            var animator = GetComponent<Animator>();
-            if(animator != null)
-                animator.enabled = false;
 
-            this.modelAsset = modelAsset;
-            callback?.Invoke();
-        });
+        var modelAsset = await Addressables.LoadAssetAsync<ModelAsset>(path).Task;
+        if (modelAsset == null) return;
+        var modelView = Instantiate(modelAsset.m_View);
+        modelView.transform.SetParent(gameObject.transform, false);
+        modelView.transform.localPosition = Vector3.zero;
+        DataInstance.Model = modelAsset;
+        
+        var animator = GetComponent<Animator>();
+        if(animator != null)
+            animator.enabled = false;
+
+        this.modelAsset = modelAsset;
     }
     #region 角色残影
 
@@ -675,50 +653,17 @@ public class MapRole : Jyx2AnimationBattleRole
     }
     #endregion
     
-    public void HitEffect(string effectName, float deltaTime = 0f, bool showDeath = false)
+    public override void DeadOrIdle()
     {
-        /*if (DataInstance.IsDead() && showDeath)
+        if (DataInstance.IsDead())
         {
             ShowDeath();
         }
         else
         {
-            GetAnimator().SetTrigger("hit");
-            GetAnimator().Update(deltaTime);
-            if (!effectName.EndsWith(".prefab")) effectName += ".prefab";
-            Jyx2ResourceHelper.LoadPrefab($"Assets/Effects/Prefabs/{effectName}", effect=> {
-                CastSkillFXAndWait(effect, 1f);
-            });
-        }*/
+            Idle();
+        }
     }
-
-    public void HitVoice(string musicName)
-    {
-        Jyx2ResourceHelper.LoadAsset<AudioClip>($"Assets/BuildSource/SoundEffect/{musicName}", soundEffect=> {
-            //声源位置与摄像机Y轴一致
-            float x = Camera.main.transform.position.x - (Camera.main.transform.position.x - transform.position.x) / 5;
-            float y = Camera.main.transform.position.y;
-            float z = Camera.main.transform.position.z - (Camera.main.transform.position.z - transform.position.z) / 5;
-            Vector3 voicePos = new Vector3(x, y, z);
-            AudioSource.PlayClipAtPoint(soundEffect, voicePos, 1f);
-        });
-    }
-
-    private void CastSkillFXAndWait(GameObject pre, float time, Action callback = null)
-    {
-        if (pre == null) return;
-        GameObject obj = GameObject.Instantiate(pre);
-        Transform _hitPoint = transform;
-        obj.transform.rotation = _hitPoint.rotation;
-        obj.transform.position = _hitPoint.position;
-        Observable.TimerFrame(Convert.ToInt32(time * 60), FrameCountType.Update)
-        .Subscribe(ms =>
-        {
-            GameObject.Destroy(obj);
-            callback?.Invoke();
-        });
-    }
-
 }
 
 public static class MapRoleTools

@@ -66,8 +66,20 @@ public partial class ChatUIPanel : Jyx2_UIBase,IUIAnimator
                 ShowSelection((string)allParams[1], (string)allParams[2], (List<string>)allParams[3], (Action<int>)allParams[4]);
                 break;
         }
+
+        //临时将触发按钮隐藏
+        var panel = FindObjectOfType<InteractUIPanel>();
+        if (panel != null && panel.gameObject.activeSelf)
+        {
+            _interactivePanel = panel.gameObject;
+            panel.gameObject.SetActive(false);
+        }
+
         //Jyx2_UIManager.Instance.SetMainUIActive(false);
     }
+
+
+    private GameObject _interactivePanel = null;
 
     private void ShowCharacter(string roleHeadPath,int roleId)
     {
@@ -92,9 +104,16 @@ public partial class ChatUIPanel : Jyx2_UIBase,IUIAnimator
     {
         if (_currentShowIndex >= _currentText.Length - 1) 
         {
-            Jyx2_UIManager.Instance.HideUI("ChatUIPanel");
+            Jyx2_UIManager.Instance.HideUI(nameof(ChatUIPanel));
             _callback?.Invoke();
             _callback = null;
+
+            if (_interactivePanel)
+            {
+                _interactivePanel.SetActive(true);
+                _interactivePanel = null;
+            }
+            
             return;
         }
 		var finalS=_currentText;
@@ -225,14 +244,13 @@ public partial class ChatUIPanel : Jyx2_UIBase,IUIAnimator
             selectionItem.transform.SetParent(Container_RectTransform, false);
             BindListener(selectionItem, delegate
             {
-                Jyx2_UIManager.Instance.HideUI("ChatUIPanel");
+                Jyx2_UIManager.Instance.HideUI(nameof(ChatUIPanel));
                 callback?.Invoke(currentIndex);
             });
         }
         SelectionPanel_RectTransform.gameObject.SetActive(true);
     }
 
-    List<Tweener> allTweenList = new List<Tweener>();
     public void DoShowAnimator()
     {
         //Content_RectTransform.anchoredPosition = Vector2.zero;
@@ -266,17 +284,5 @@ public partial class ChatUIPanel : Jyx2_UIBase,IUIAnimator
     void Update()
     {
         if (Input.GetKeyDown(KeyCode.Space)) OnMainBgClick();
-    }
-
-    protected override void OnHidePanel()
-    {
-        base.OnHidePanel();
-        //Jyx2_UIManager.Instance.SetMainUIActive(true);
-        foreach (var item in allTweenList)
-        {
-            item.Complete();
-            item.Kill();
-        }
-        allTweenList.Clear();
     }
 }

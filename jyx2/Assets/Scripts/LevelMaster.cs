@@ -20,6 +20,7 @@ using HanSquirrel.ResourceManager;
 using UniRx;
 using System;
 using Cinemachine;
+using Cysharp.Threading.Tasks;
 
 public class LevelMaster : MonoBehaviour
 {
@@ -80,9 +81,6 @@ public class LevelMaster : MonoBehaviour
 
     GameObject navPointer;//寻路终点图标
 
-    public float m_MoveSpeedRatio = 30.0f;
-    public float m_RotateSpeed = 5.0f;
-
     public ETCJoystick m_Joystick;
 
     [HideInInspector]
@@ -134,8 +132,7 @@ public class LevelMaster : MonoBehaviour
                 }
             }
         }
-        
-        
+
         if (RuntimeDataSimulate && runtime == null)
         {
             //测试存档位
@@ -148,9 +145,8 @@ public class LevelMaster : MonoBehaviour
             brain.m_DefaultBlend = new CinemachineBlendDefinition(CinemachineBlendDefinition.Style.Cut, 0);
         }
         
-        //播放音乐
-        var gameMap = GetCurrentGameMap();
 
+        var gameMap = GetCurrentGameMap();
         if (gameMap != null)
         {
             if (gameMap.Tags.Contains("WORLDMAP"))//JYX2 临时测试
@@ -172,8 +168,7 @@ public class LevelMaster : MonoBehaviour
             else
             {
                 //显示当前地图名，大地图不用显示
-                //StoryEngine.Instance.middleTopMessageSuggestPanel.Show(gameMap.GetShowName());
-                Jyx2_UIManager.Instance.ShowUI("CommonTipsUIPanel", TipsType.MiddleTop, gameMap.GetShowName());
+                Jyx2_UIManager.Instance.ShowUI(nameof(CommonTipsUIPanel), TipsType.MiddleTop, gameMap.GetShowName());
             }
 
             if (string.IsNullOrEmpty(runtime.CurrentMap))
@@ -241,7 +236,7 @@ public class LevelMaster : MonoBehaviour
 
     public void PlayMusicAtPath(string musicPath)
     {
-        AudioManager.PlayMusicAtPath(musicPath);
+        AudioManager.PlayMusicAtPath(musicPath).Forget();
     }
 
     /// <summary>
@@ -257,7 +252,7 @@ public class LevelMaster : MonoBehaviour
         }
     }
 
-    public void UpdateMobileControllerUI()
+    private void UpdateMobileControllerUI()
     {
         //大地图或editor上都不显示
         m_Joystick.gameObject.SetActive(IsMobilePlatform() && m_CurrentType != MapType.BigMap);
@@ -347,7 +342,7 @@ public class LevelMaster : MonoBehaviour
     }
 
 
-    public void SetPlayerSpeed(float speed)
+    private void SetPlayerSpeed(float speed)
     {
         if (_player == null)
             return;
@@ -359,19 +354,13 @@ public class LevelMaster : MonoBehaviour
         }
     }
 
-    public void SetPlayer(MapRole playerRoleView)
+    private async UniTask SetPlayer(MapRole playerRoleView)
     {
 		// reverting this change. to fix "reference on null object" error when enter/ exit scene
 		// modified by eaphone at 2021/05/30
         _playerView = playerRoleView;
         _player = playerRoleView.transform;
         _playerNavAgent = playerRoleView.GetComponent<NavMeshAgent>();
-        playerRoleView.BindRoleInstance(runtime.Player, ()=> {
-            //由于这里是异步加载模型，所以必须加载完后才初始化出生点，因为初始化出生点里有描述玩家是否在船上，需要调用子节点的renderer
-
-            //初始化出生点
-            LoadSpawnPosition();
-        });
         
         SetPlayerSpeed(0);
         var gameMap = GetCurrentGameMap();
@@ -393,6 +382,9 @@ public class LevelMaster : MonoBehaviour
             var player = _player.gameObject.AddComponent<Jyx2Player>();
             player.Init();
         }
+
+        await playerRoleView.BindRoleInstance(runtime.Player);
+        LoadSpawnPosition();
     }
 
 	// fix bind player failed error when select player before start battle
@@ -407,7 +399,7 @@ public class LevelMaster : MonoBehaviour
         if (playerObj != null)
         {
             //设置主角
-            SetPlayer(playerObj);
+            SetPlayer(playerObj).Forget();
             //添加队友
             //CreateTeammates(gameMap, playerObj.transform);
 
@@ -432,35 +424,14 @@ public class LevelMaster : MonoBehaviour
     void FixedUpdate()
     {
         TryClearNavPointer();
-
-        if (BattleManager.Instance.IsInBattle)
-        {
-            //自动战斗镜头控制
-            if (Input.GetAxis("Horizontal") != 0 || Input.GetAxis("Vertical") != 0)
-            {
-                //CameraHelper.Instance.BattleCamMove(Input.GetAxis("Horizontal"), Input.GetAxis("Vertical"));
-            }
-            else if (m_Joystick.axisX.axisValue != 0 || m_Joystick.axisY.axisValue != 0)
-            {
-                //CameraHelper.Instance.BattleCamMove(-m_Joystick.axisX.axisValue, m_Joystick.axisY.axisValue);
-            }
-        }
-        else
-        {
-            //角色控制
-            PlayerControll();
-
-            if (Input.GetKey(KeyCode.Q))
-            {
-
-            }
-        }
+        PlayerControll();
     }
-	// added by eaphone at 2021/05/30
-	public static bool isEscPressed=false;
-
+    
     void PlayerControll()
     {
+        if (BattleManager.Instance.IsInBattle)
+            return;
+        
         //timeline不允许角色移动
         if (StoryEngine.Instance != null && StoryEngine.Instance.BlockPlayerControl)
         {
@@ -484,7 +455,23 @@ public class LevelMaster : MonoBehaviour
         _CanController = CanController;
         var player = GetPlayer();
         player.CanControl(CanController);
+
+        var interactUI = FindObjectOfType<InteractUIPanel>();
+        if (interactUI != null)
+        {
+            interactUI.gameObject.SetActive(CanController);
+        }
     }
+
+    /// <summary>
+    /// 玩家是否拥有角色控制权
+    /// </summary>
+    /// <returns></returns>
+    public bool IsPlayerCanControl()
+    {
+        return _CanController;
+    }
+    
     private Action _OnArriveDestination;
     public void PlayerWarkFromTo(Vector3 fromVector,Vector3 toVector, Action callback) 
     {
@@ -560,25 +547,13 @@ public class LevelMaster : MonoBehaviour
                 }
             }
         }
-
-        //大地图不管其他逻辑，直接播放当前跑速动画
-        //if(m_CurrentType == MapType.BigMap)
-        //{
-        //    _playerAnim.SetFloat("speed", _playerNavAgent.velocity.magnitude);
-        //}
-        //else if (!_playerNavAgent.isStopped)
-        //{
-        //    _playerAnim.SetFloat("speed", _playerNavAgent.velocity.magnitude);
-        //}
     }
 
     void OnManualControlPlayer()
     {
-        //大地图不能手动控制角色
-        //if (m_CurrentType == MapType.BigMap)
-        //    return;
         if (!_CanController)//掉本调用自动寻路的时候 不能手动控制
             return;
+        
         if(Input.GetAxis("Horizontal") != 0 || Input.GetAxis("Vertical") != 0)
         {
             OnManuelMove(Input.GetAxis("Horizontal"), Input.GetAxis("Vertical"));
@@ -701,23 +676,7 @@ public class LevelMaster : MonoBehaviour
     }
     #endregion
 
-    IEnumerator CastTexiaoAndWaitSkill(GameObject pre, float time, Transform parent, Action callback = null)
-    {
-        GameObject obj = null;
-        if (pre != null)
-        {
-            obj = GameObject.Instantiate(pre);
-            obj.transform.rotation = parent.rotation;
-            obj.transform.position = parent.position;
-            //obj.transform.SetParent(parent.transform, false);
-        }
-        yield return new WaitForSeconds(time);
-        if (pre != null)
-        {
-            GameObject.Destroy(obj);
-        }
-        callback?.Invoke();
-    }
+
 
 
     //传送
@@ -828,34 +787,6 @@ public class LevelMaster : MonoBehaviour
     {
         SceneManager.LoadScene("0_GameStart");
     }
-
-
-
-    public List<MapRole> FindAllMapRole()
-    {
-        List<MapRole> rst = new List<MapRole>();
-        MapRole[] objs = (MapRole[])Resources.FindObjectsOfTypeAll(typeof(MapRole));
-
-        foreach (MapRole obj in objs)
-        {
-            if (obj.transform.parent == null) continue;
-
-            if (obj.hideFlags == HideFlags.NotEditable || obj.hideFlags == HideFlags.HideAndDontSave) continue;
-
-            //if (Application.isEditor)
-            //{
-            //    string sAssetPath = AssetDatabase.GetAssetPath(pObject.transform.root.gameObject);
-            //    if (!string.IsNullOrEmpty(sAssetPath))
-            //    {
-            //        continue;
-            //    }
-            //}
-            rst.Add(obj);
-        }
-        return rst;
-    }
-
-
 
     //刷新本场景内的所有事件
     //事件执行和更改结果存储在runtime里，需要结合当前场景进行调整

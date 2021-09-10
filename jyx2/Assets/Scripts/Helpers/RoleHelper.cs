@@ -10,6 +10,7 @@
 using HanSquirrel.ResourceManager;
 using Jyx2;
 using System;
+using Cysharp.Threading.Tasks;
 using UnityEngine;
 
 public static class RoleHelper
@@ -54,7 +55,7 @@ public static class RoleHelper
     /// <param name="roleView"></param>
     public static void CreateRoleInstance(this MapRole roleView, string roleKey)
     {
-        roleView.BindRoleInstance(new RoleInstance(roleKey));
+        roleView.BindRoleInstance(new RoleInstance(roleKey)).Forget();
         roleView.DataInstance.Hp = roleView.DataInstance.MaxHp; //默认满血
     }
 
@@ -63,7 +64,7 @@ public static class RoleHelper
     /// </summary>
     /// <param name="roleView"></param>
     /// <param name="role"></param>
-    public static void BindRoleInstance(this MapRole roleView, RoleInstance role, Action callback = null)
+    public static async UniTask BindRoleInstance(this MapRole roleView, RoleInstance role)
     {
         if (role == null || roleView == null)
             return;
@@ -79,12 +80,7 @@ public static class RoleHelper
         //JYX2 不刷新临时NPC外观
         if(roleView.m_RoleKey != "testman")
         {
-            roleView.RefreshModel(callback);
-        }
-        else
-        {
-            if(callback != null)
-                callback();
+            await roleView.RefreshModel();
         }
     }
 }

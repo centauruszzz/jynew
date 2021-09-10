@@ -187,12 +187,10 @@ namespace Jyx2
 
             Hurt = 0;
             Poison = 0;
-
-            getOrigin = true;
-            Attack += Tools.GetRandomInt(0, 7);
-            Qinggong += Tools.GetRandomInt(0, 7);
-            Defence += Tools.GetRandomInt(0, 7);
-            getOrigin = false;
+            
+            Attack = getAttack(true)+Tools.GetRandomInt(0, 7);
+            Qinggong = getDefence(true)+Tools.GetRandomInt(0, 7);
+            Defence = getQinggong(true)+Tools.GetRandomInt(0, 7);
 
             Heal = checkUp(Heal, 0, 3);
             DePoison = checkUp(DePoison, 0, 3);
@@ -206,26 +204,6 @@ namespace Jyx2
             this.Limit();
 
             Debug.Log($"{this.Name}升到{this.Level}级！");
-        }
-
-        public void CheckYeQiuQuan()
-        {
-            var key = 1;
-            var ran = new System.Random();
-            GameRuntimeData.Instance.YeQiuQuanCounter += ran.Next(1, 3);
-            if (GameRuntimeData.Instance.YeQiuQuanCounter >= 100 && GetWugongLevel(key) <= GameConst.MAX_WUGONG_LEVEL)
-            {
-                this.LearnMagic(key);
-                GameRuntimeData.Instance.YeQiuQuanCounter = 0;
-                Loom.QueueOnMainThread(
-                    _ =>
-                    {
-                        new Action(() =>
-                        {
-                            StoryEngine.Instance.DisplayPopInfo("野球拳升为第 " + GetWugongLevel(key) + " 级！");
-                        })();
-                    }, null);
-            }
         }
 
         void Limit()
@@ -253,6 +231,7 @@ namespace Jyx2
             Yujian = Tools.Limit(Yujian, 0, GameConst.MAX_ROLE_WEAPON_ATTR);
             Shuadao = Tools.Limit(Shuadao, 0, GameConst.MAX_ROLE_WEAPON_ATTR);
             Qimen = Tools.Limit(Qimen, 0, GameConst.MAX_ROLE_WEAPON_ATTR);
+            Anqi =Tools.Limit(Anqi, 0, GameConst.MAX_ROLE_WEAPON_ATTR);
 
             IQ = Tools.Limit(IQ, 0, GameConst.MAX_ROLE_ZIZHI);
             Pinde = Tools.Limit(Pinde, 0, GameConst.MAX_ROLE_PINDE);
@@ -365,32 +344,19 @@ namespace Jyx2
 
         public int Attack //攻击力
         {
-            get
-            {
-                return getOrigin ? Get("Attack", Data.Attack) : Tools.Limit(Get("Attack", Data.Attack), 0, MaxAttack);
-            }
+            get { return getAttack(false); }
             set { Save("Attack", value); }
         }
 
         public int Qinggong //轻功
         {
-            get
-            {
-                return getOrigin
-                    ? Get("Qinggong", Data.Qinggong)
-                    : Tools.Limit(Get("Qinggong", Data.Qinggong), 0, MaxQinggong);
-            }
+            get { return getQinggong(true); }
             set { Save("Qinggong", value); }
         }
 
         public int Defence //防御力
         {
-            get
-            {
-                return getOrigin
-                    ? Get("Defence", Data.Defence)
-                    : Tools.Limit(Get("Defence", Data.Defence), 0, MaxDefence);
-            }
+            get { return getDefence(false); }
             set { Save("Defence", value); }
         }
 
@@ -737,6 +703,27 @@ namespace Jyx2
             MaxQinggong += (item.Qinggong>0?item.Qinggong:0) * AddType;
         }
 
+        private int getAttack(bool isOrigin)
+        {
+            int Attack = Get("Attack", Data.Attack);
+            if(isOrigin) return Attack;
+            return Tools.Limit(Attack, 0, MaxAttack);
+        }
+
+        private int getDefence(bool isOrigin)
+        {
+            int Defence = Get("Defence", Data.Defence);
+            if (isOrigin) return Defence;
+            return Tools.Limit(Defence, 0, MaxDefence);
+        }
+
+        private int getQinggong(bool isOrigin)
+        {
+            int Qinggong = Get("Qinggong", Data.Qinggong);
+            if (isOrigin) return Qinggong;
+            return Tools.Limit(Qinggong, 0, MaxQinggong);
+        }
+
         private GameRuntimeData runtime
         {
             get { return GameRuntimeData.Instance; }
@@ -797,16 +784,15 @@ namespace Jyx2
             this.AntiPoison += item.AntiPoison;
             this.UsePoison += item.UsePoison;
 
-            getOrigin = true;
-            this.Attack += item.Attack;
-            this.Defence += item.Defence;
-            this.Qinggong += item.Qinggong;
-            getOrigin = false;
+            this.Attack = getAttack(true)+item.Attack;
+            this.Defence = getDefence(true)+item.Defence;
+            this.Qinggong = getQinggong(true)+ item.Qinggong;
 
             this.Quanzhang += item.Quanzhang;
             this.Yujian += item.Yujian;
             this.Shuadao += item.Shuadao;
             this.Qimen += item.Qimen;
+            this.Anqi += item.Anqi;
 
             this.Pinde += item.AddPinde;
             this.AttackPoison += item.AttackPoison;
@@ -820,7 +806,7 @@ namespace Jyx2
                 this.Zuoyouhubo = 1;
             }
 
-            int need_item_exp = getFinishedExpForItem(item);
+            int need_item_exp = GetFinishedExpForItem(item);
             if (this.ExpForItem >= need_item_exp)
             {
                 this.LearnMagic(item.Wugong);
@@ -851,17 +837,16 @@ namespace Jyx2
             this.DePoison -= item.DePoison;
             this.AntiPoison -= item.AntiPoison;
             this.UsePoison -= item.UsePoison;
-
-            getOrigin = true;
-            this.Attack -= item.Attack;
-            this.Defence -= item.Defence;
-            this.Qinggong -= item.Qinggong;
-            getOrigin = false;
+            
+            this.Attack = getAttack(true)-item.Attack;
+            this.Defence = getDefence(true)-item.Defence;
+            this.Qinggong = getQinggong(true)- item.Qinggong;
 
             this.Quanzhang -= item.Quanzhang;
             this.Yujian -= item.Yujian;
             this.Shuadao -= item.Shuadao;
             this.Qimen -= item.Qimen;
+            this.Anqi -= item.Anqi;
 
             this.Pinde -= item.AddPinde;
             this.AttackPoison -= item.AttackPoison;
@@ -875,7 +860,7 @@ namespace Jyx2
                 this.Zuoyouhubo = 1;
             }
 
-            int need_item_exp = getFinishedExpForItem(item);
+            int need_item_exp = GetFinishedExpForItem(item);
             if (this.ExpForItem >= need_item_exp)
             {
                 this.LearnMagic(item.Wugong);
@@ -897,7 +882,7 @@ namespace Jyx2
 
         public int GetFinishedExpForItem()
         {
-            return getFinishedExpForItem(GetXiulianItem());
+            return GetFinishedExpForItem(GetXiulianItem());
         }
 
         /// <summary>
@@ -905,7 +890,7 @@ namespace Jyx2
         /// </summary>
         /// <param name="item"></param>
         /// <returns></returns>
-        public int getFinishedExpForItem(Jyx2Item item)
+        public int GetFinishedExpForItem(Jyx2Item item)
         {
             if (item == null || item.ItemType != 2 || item.NeedExp < 0)
             {
@@ -1035,26 +1020,20 @@ namespace Jyx2
         public bool isActed = false;
         public bool isWaiting = false; //正在等待
 
-        public bool IsInBattle()
-        {
-            return _isInBattle;
-        }
-
-        public void EnterBattle(int team)
+        public void EnterBattle()
         {
             if (_isInBattle) return;
-            //if (!BattleHelper.Instance.IsInBattle) BattleHelper.Instance.StartBattle();
+            
             _isInBattle = true;
             _currentSkill = null;
 
-            View.SwitchStatus(MapRoleStatus.Battle);
+            View.LazyInitAnimator();
 
-            var defaultWugong = Wugongs[0];
-
-            SwitchAnimationToSkill(defaultWugong);
-
-            //BattleHelper.Instance.AddBattleRole(this, team);
-            BattleManager.Instance.AddBattleRole(this, team);
+            if (Wugongs.Count > 0)
+            {
+                //默认使用第一个武功
+                SwitchAnimationToSkill(Wugongs[0]);    
+            }
         }
 
         public void SetHPAndRefreshHudBar(int hp)
@@ -1081,8 +1060,6 @@ namespace Jyx2
         public void LeaveBattle()
         {
             _isInBattle = false;
-            //View.SwitchStatus(MapRoleStatus.Normal);
-            //View.TakeOffWeapon();
         }
 
 
@@ -1183,15 +1160,7 @@ namespace Jyx2
         #endregion
 
         #region 状态相关
-
-        public void CheckDeath(int type = 0)
-        {
-            if (IsDead() && View != null)
-            {
-                View.ShowDeath(type);
-            }
-        }
-
+        
         public bool IsDead()
         {
             return Hp <= 0;
